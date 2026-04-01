@@ -1,0 +1,188 @@
+import { useAuthActions } from '@/hooks/useAuthActions';
+import { getPermission, getUserInfo } from '@/services/base/api';
+import { AppModules } from '@/services/base/constant';
+import { type Login } from '@/services/base/typing';
+import axios from '@/utils/axios';
+import { currentRole, replaceRole } from '@/utils/ip';
+import { oidcConfig } from '@/utils/oidcConfig';
+import { notification } from 'antd';
+import queryString from 'query-string';
+import { useEffect, type FC } from 'react';
+import { AuthProvider, hasAuthParams, useAuth } from 'react-oidc-context';
+import { history, useIntl, useModel } from 'umi';
+import LoadingPage from '../Loading';
+import { unAuthPaths, unCheckPermissionPaths } from './constant';
+
+let OIDCBounderHandlers: ReturnType<typeof useAuthActions> | null = null;
+
+export const OIDCBounder_: FC<{ children: React.ReactElement }> = ({ children }) => {
+	const intl = useIntl();
+	const { setInitialState, initialState } = useModel('@@initialState');
+	const auth = useAuth();
+	const actions = useAuthActions();
+	const isUnauth = unAuthPaths.some((path) => window.location.pathname.includes(path));
+	let timeout: any = null;
+
+	const handleAxios = (access_token: string) => {
+		axios.defaults.headers.common.Authorization = `Bearer ${access_token}`;
+	};
+
+	const redirectLocation = () => {
+		// Loại bỏ các Auth params
+		const { code, iss, session_state, state, ...other } = queryString.parse(window.location.search);
+		let newSearch = Object.keys(other)
+			.map((key) => `${key}=${other[key]}`)
+			.join('&');
+		if (newSearch) newSearch = '?' + newSearch;
+		// Reload trang để cập nhật access token mới
+		const pathname =
+			window.location.pathname === '/' || window.location.pathname === '/user/login'
+				? '/dashboard'
+				: window.location.pathname;
+		window.location.replace(`${pathname}${newSearch}${window.location.hash}`);
+		// window.history.replaceState({}, document.title, `${pathname}${newSearch}${window.location.hash}`);
+		// window.location.reload();
+	};
+
+	const handleLogin = async () => {
+		const customToken = localStorage.getItem('access_token');
+
+		if (auth.user || customToken) {
+			const tokenToUse = auth.user?.access_token || customToken;
+			if (tokenToUse) handleAxios(tokenToUse);
+			try {
+				let userInfo: any = {};
+				let permissions: any[] = [];
+
+				if (auth.user) {
+					const [getPermissionsResponse, getUserInfoResponse] = await Promise.all([getPermission(), getUserInfo()]);
+					userInfo = getUserInfoResponse?.data;
+					permissions = getPermissionsResponse.data;
+				} else if (customToken) {
+					userInfo = { sub: 'nro-admin', preferred_username: 'admin' };
+					permissions = [{ rsname: currentRole }];
+				}
+
+				const isUncheckPath = unCheckPermissionPaths.some((path) => window.location.pathname.includes(path));
+				const hasRole = permissions.some((item) => item.rsname === currentRole);
+				const tmpInitialState = {
+					currentUser: { ...userInfo, ssoId: userInfo.sub },
+					authorizedPermissions: permissions,
+				};
+
+				// Ensure permission is fully set before marking as loaded
+				setInitialState((prev) => ({
+					...prev,
+					...tmpInitialState,
+				}));
+
+				// Persist minimal initial state so reload won't lose permissions immediately
+				try {
+					sessionStorage.setItem('initialState', JSON.stringify(tmpInitialState));
+				} catch (e) { }
+
+				// Use setTimeout to ensure state update is completed before setting permissionLoading to false
+				setTimeout(() => {
+					setInitialState((prev) => ({ ...prev, permissionLoading: false }));
+				}, 0);
+
+				if (!isUncheckPath && currentRole && permissions.length && !hasRole) {
+					const hasReplaceRole = permissions.some((item) => item.rsname === replaceRole);
+					const linkReplace = !!replaceRole && AppModules[replaceRole]?.url;
+
+					if (!!linkReplace && hasReplaceRole) {
+						window.location.replace(linkReplace);
+						return;
+					}
+					history.replace('/403');
+				} else {
+					if (window.location.pathname === '/' || window.location.pathname === '/user/login') {
+						if (customToken && !auth.user) {
+							history.push('/dashboard');
+						} else {
+							redirectLocation();
+						}
+					}
+				}
+			} catch {
+				if (auth.isAuthenticated) auth.removeUser();
+				else {
+					notification.warning({
+						message: intl.formatMessage({ id: 'global.OIDCBounder.message' }),
+						description: intl.formatMessage({ id: 'global.OIDCBounder.description' }),
+					});
+					localStorage.removeItem('access_token');
+					history.replace('/user/login');
+				}
+			}
+		} else {
+			history.replace('/user/login');
+		}
+	};
+
+	useEffect(() => {
+		// Nếu đang cập nhật thì bật cái này lên
+		// history.replace('/hold-on');
+		// return;
+
+		// Trong trường hợp các trang Public muốn đăng nhập thì dùng
+		// <Button onClick={() => signinPopup()}>Đăng nhập</Button>
+		// Sau khi đăng nhập popup sẽ nhảy về đây và xử lý như bình thường
+
+		if (auth.isLoading) return;
+
+		const customToken = localStorage.getItem('access_token');
+
+		if (!hasAuthParams() && !auth.isAuthenticated && !customToken) {
+			// auth.signinRedirect();
+			history.replace('/user/login');
+			return;
+		}
+
+		if (customToken && !auth.isAuthenticated) {
+			handleLogin();
+			return;
+		}
+
+		// Quá 5s nếu ko auth được thì xóa params
+		if (!timeout)
+			timeout = setTimeout(() => {
+				if (hasAuthParams() && !auth.isAuthenticated) redirectLocation();
+			}, 1000 * 5);
+
+		// Đã login => Xoá toàn bộ auth params được sử dụng để login trước đó
+		if (auth.isAuthenticated) {
+			if (hasAuthParams()) redirectLocation();
+			else {
+				if (timeout) clearTimeout(timeout);
+				handleLogin();
+			}
+		}
+	}, [auth.isAuthenticated, auth.isLoading]);
+
+	useEffect(() => {
+		const token = auth.user?.access_token || localStorage.getItem('access_token');
+		if (token) handleAxios(token);
+	}, [auth.user?.access_token]);
+
+	useEffect(() => {
+		OIDCBounderHandlers = actions;
+	}, [actions]);
+
+	return <>{(auth.isLoading || initialState?.permissionLoading) && !isUnauth ? <LoadingPage /> : children}</>;
+};
+
+export const OIDCBounder: FC<{ children: React.ReactElement }> & { getActions: () => typeof OIDCBounderHandlers } = (
+	props,
+) => {
+	return (
+		<AuthProvider
+			{...oidcConfig}
+			redirect_uri={window.location.pathname.includes('/user') ? window.location.origin : window.location.href}
+		>
+			<OIDCBounder_ {...props} />
+		</AuthProvider>
+	);
+};
+
+OIDCBounder.getActions = () => OIDCBounderHandlers;
