@@ -1,7 +1,7 @@
 export default {
 	// Module names
 	'modules.cong-thong-tin': 'Cổng thông tin',
-	'modules.cong-hoc-vien': 'S-Link',
+	'modules.cong-hoc-vien': 'Quản Lý',
 	'modules.cong-can-bo': 'Cổng cán bộ',
 	'modules.quan-ly-dao-tao': 'Quản lý đào tạo',
 	'modules.to-chuc-nhan-su': 'Tổ chức cán bộ',
@@ -20,6 +20,6 @@ export default {
 
 	// University information
 	'config.co-quan-chu-quan': 'Bộ Khoa học và Công nghệ',
-	'config.ten-truong': 'Học viện Công nghệ Bưu chính Viễn thông',
-	'config.tien-to-truong': 'Học viện',
+	'config.ten-truong': 'PHÁT TRIỂN NỀN TẢNG GAME TRỰC TUYẾN',
+	'config.tien-to-truong': 'HỆ THỐNG ĐIỀU KHIỂN',
 };

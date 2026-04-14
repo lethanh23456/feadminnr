@@ -10,7 +10,7 @@ const ipNotif = ipRoot + 'notification'; // ip dev
 const ipSlink = ipRoot + 'slink'; // ip dev
 const ipCore = ipRoot + 'core'; // ip dev
 
-const nro = 'https://api.chienbinhrongthieng.online';
+const nro = 'https://api.ngocrongdark.com';
 const ipNR = nro;
 
 const currentRole = EModuleKey.CONNECT;

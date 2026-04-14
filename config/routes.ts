@@ -46,9 +46,19 @@
 		icon: 'copy',
 		routes: [
 			{
-				name: 'ChucVu',
-				path: 'chuc-vu',
-				component: './DanhMuc/ChucVu',
+				name: 'Quản Lý Rút Tiền',
+				path: 'quan-ly-rut-tien',
+				component: './DanhMuc/QuanLyRutTien',
+			},
+			{
+				name: 'Quản Lý Tin Tức',
+				path: 'quan-ly-tin-tuc',
+				component: './DanhMuc/QuanLyTinTuc',
+			},
+			{
+				name: 'Quản Lý Tài Khoản',
+				path: 'quan-ly-tai-khoan',
+				component: './DanhMuc/QuanLyTaiKhoan',
 			},
 		],
 	},
