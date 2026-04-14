@@ -60,6 +60,11 @@
 				path: 'quan-ly-tai-khoan',
 				component: './DanhMuc/QuanLyTaiKhoan',
 			},
+			{
+				name: 'Quản Lý Game',
+				path: 'quan-ly-game',
+				component: './DanhMuc/QuanLyGame',
+			},
 		],
 	},
 

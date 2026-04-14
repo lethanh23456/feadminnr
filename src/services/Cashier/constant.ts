@@ -2,6 +2,7 @@ export enum EWithdrawStatus {
     SUCCESS = 'SUCCESS',
     PENDING = 'PENDING',
     FAILED = 'FAILED',
+    ERROR = 'ERROR',
 }
 
 export const WithdrawStatusConfig: Record<string, { text: string; color: string }> = {
