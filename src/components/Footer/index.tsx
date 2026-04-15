@@ -1,25 +1,11 @@
-import { landingUrl, tenTruongVietTatTiengAnh, unitName } from '@/services/base/constant';
+import { tenTruongVietTatTiengAnh } from '@/services/base/constant';
 import { DefaultFooter } from '@ant-design/pro-layout';
-import { useIntl } from 'umi';
 
 export default () => {
-	const intl = useIntl();
-	const defaultMessage = intl.formatMessage({
-		id: 'app.copyright.produced',
-		defaultMessage: 'CopyRight',
-	});
-
 	return (
 		<DefaultFooter
 			copyright={`2024 ${tenTruongVietTatTiengAnh?.toUpperCase() ?? ''} - ${APP_CONFIG_APP_VERSION}`}
-			links={[
-				{
-					key: 'link',
-					title: intl.formatMessage({ id: unitName }).toUpperCase(),
-					href: landingUrl,
-					blankTarget: true,
-				},
-			]}
+			links={[]}
 			style={{ width: '100%' }}
 		/>
 	);

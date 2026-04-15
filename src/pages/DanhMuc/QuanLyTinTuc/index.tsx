@@ -1,181 +1,209 @@
-import { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, Tag, Space, Popconfirm, message, Image } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, LockOutlined, UnlockOutlined } from '@ant-design/icons';
-import { createPost, getAllPost, updatePost, deletePost, lockPost, unlockPost } from '@/services/Editor/api';
+import { createPost, deletePost, getAllPost, getPostById, lockPost, unlockPost, updatePost } from '@/services/Editor/api';
+import { Card, message } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import PostDetailDrawer from './components/PostDetailDrawer';
+import PostFormModal from './components/PostFormModal';
+import PostTable from './components/PostTable';
+import PostToolbar from './components/PostToolbar';
+import type { Post, PostFormValues } from './types';
+import './style.less';
 
-const { TextArea } = Input;
+const normalizePosts = (raw: any): Post[] => {
+	const source = raw?.data?.posts ?? raw?.posts ?? raw?.data?.data ?? raw?.data ?? raw;
+	if (!Array.isArray(source)) return [];
+	return source.map((item) => ({
+		...item,
+		is_locked: typeof item?.is_locked === 'boolean' ? item.is_locked : item?.status === 'LOCKED',
+	}));
+};
 
-interface Post {
-  id: number;
-  title: string;
-  content: string;
-  url_anh: string;
-  editor_realname: string;
-  is_locked?: boolean;
-}
+const normalizePost = (raw: any): Post | null => {
+	const source = raw?.data?.post ?? raw?.post ?? raw?.data?.data ?? raw?.data ?? raw;
+	if (!source || typeof source !== 'object') return null;
+	return {
+		...source,
+		is_locked: typeof source?.is_locked === 'boolean' ? source.is_locked : source?.status === 'LOCKED',
+	} as Post;
+};
+
+const getToken = () => localStorage.getItem('token') || localStorage.getItem('access_token') || '';
 
 const QuanLyTinTuc = () => {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingPost, setEditingPost] = useState<Post | null>(null);
-  const [form] = Form.useForm();
-  const token = localStorage.getItem('token') || '';
+	const [posts, setPosts] = useState<Post[]>([]);
+	const [loading, setLoading] = useState(false);
+	const [submitLoading, setSubmitLoading] = useState(false);
+	const [modalOpen, setModalOpen] = useState(false);
+	const [editingPost, setEditingPost] = useState<Post | null>(null);
+	const [detailOpen, setDetailOpen] = useState(false);
+	const [detailLoading, setDetailLoading] = useState(false);
+	const [detailPost, setDetailPost] = useState<Post | null>(null);
+	const [editorInput, setEditorInput] = useState('');
+	const [editorFilter, setEditorFilter] = useState('');
 
-  const fetchPosts = async () => {
-    setLoading(true);
-    try {
-      const res = await getAllPost(token);
-      setPosts(res.data?.data ?? res.data);
-    } catch {
-      message.error('Không thể tải danh sách tin tức');
-    } finally {
-      setLoading(false);
-    }
-  };
+	const fetchPosts = async () => {
+		const token = getToken();
+		setLoading(true);
+		try {
+			const res = await getAllPost(token);
+			setPosts(normalizePosts(res));
+		} catch {
+			message.error('Không thể tải danh sách bài viết');
+		} finally {
+			setLoading(false);
+		}
+	};
 
-  useEffect(() => { fetchPosts(); }, []);
+	useEffect(() => {
+		fetchPosts();
+	}, []);
 
-  const openCreate = () => {
-    setEditingPost(null);
-    form.resetFields();
-    setModalOpen(true);
-  };
+	const filteredPosts = useMemo(() => {
+		const keyword = editorFilter.trim().toLowerCase();
+		if (!keyword) return posts;
+		return posts.filter((item) => item.editor_realname?.toLowerCase().includes(keyword));
+	}, [editorFilter, posts]);
 
-  const openEdit = (post: Post) => {
-    setEditingPost(post);
-    form.setFieldsValue(post);
-    setModalOpen(true);
-  };
+	const handleApplyEditorFilter = () => {
+		setEditorFilter(editorInput.trim());
+	};
 
-  const handleSubmit = async (values: Omit<Post, 'id'>) => {
-    try {
-      if (editingPost) {
-        await updatePost(editingPost.id, values.title, values.content, values.url_anh, token);
-        message.success('Cập nhật tin tức thành công');
-      } else {
-        await createPost(token, values.title, values.content, values.url_anh, values.editor_realname);
-        message.success('Thêm tin tức thành công');
-      }
-      setModalOpen(false);
-      fetchPosts();
-    } catch {
-      message.error('Có lỗi xảy ra');
-    }
-  };
+	const handleResetFilter = () => {
+		setEditorInput('');
+		setEditorFilter('');
+	};
 
-  const handleDelete = async (id: number) => {
-    try {
-      await deletePost(id, token);
-      message.success('Đã xóa tin tức');
-      fetchPosts();
-    } catch {
-      message.error('Xóa thất bại');
-    }
-  };
+	const openCreateModal = () => {
+		setEditingPost(null);
+		setModalOpen(true);
+	};
 
-  const handleToggleLock = async (post: Post) => {
-    try {
-      if (post.is_locked) {
-        await unlockPost(post.id, token);
-        message.success('Đã mở khoá');
-      } else {
-        await lockPost(post.id, token);
-        message.success('Đã khoá bài viết');
-      }
-      fetchPosts();
-    } catch {
-      message.error('Thao tác thất bại');
-    }
-  };
+	const openEditModal = (post: Post) => {
+		setEditingPost(post);
+		setModalOpen(true);
+	};
 
-  const columns = [
-    { title: '#', dataIndex: 'id', width: 60 },
-    {
-      title: 'Ảnh',
-      dataIndex: 'url_anh',
-      width: 80,
-      render: (url: string) => url ? <Image src={url} width={56} height={40} style={{ objectFit: 'cover', borderRadius: 4 }} /> : '—',
-    },
-    {
-      title: 'Tiêu đề',
-      dataIndex: 'title',
-      ellipsis: true,
-      render: (text: string) => <span style={{ fontWeight: 500 }}>{text}</span>,
-    },
-    { title: 'Tác giả', dataIndex: 'editor_realname', width: 140 },
-    {
-      title: 'Trạng thái',
-      dataIndex: 'is_locked',
-      width: 110,
-      render: (locked: boolean) =>
-        locked ? <Tag color="red">Khoá</Tag> : <Tag color="green">Hiển thị</Tag>,
-    },
-    {
-      title: 'Hành động',
-      width: 200,
-      render: (_: unknown, record: Post) => (
-        <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>Sửa</Button>
-          <Button
-            size="small"
-            icon={record.is_locked ? <UnlockOutlined /> : <LockOutlined />}
-            onClick={() => handleToggleLock(record)}
-          >
-            {record.is_locked ? 'Mở' : 'Khoá'}
-          </Button>
-          <Popconfirm title="Xác nhận xoá tin này?" onConfirm={() => handleDelete(record.id)} okText="Xoá" cancelText="Huỷ">
-            <Button size="small" danger icon={<DeleteOutlined />}>Xoá</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+	const handleSubmit = async (values: PostFormValues) => {
+		const token = getToken();
+		setSubmitLoading(true);
+		try {
+			if (editingPost) {
+				await updatePost(editingPost.id, values.title, values.content, values.url_anh, token);
+				message.success('Cập nhật bài viết thành công');
+			} else {
+				await createPost(token, values.title, values.content, values.url_anh, values.editor_realname || '');
+				message.success('Tạo bài viết thành công');
+			}
+			setModalOpen(false);
+			setEditingPost(null);
+			await fetchPosts();
+		} catch {
+			message.error('Không thể lưu bài viết');
+		} finally {
+			setSubmitLoading(false);
+		}
+	};
 
-  return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>Quản lý tin tức</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Thêm tin tức</Button>
-      </div>
+	const handleDeletePost = async (postId: number) => {
+		const token = getToken();
+		try {
+			await deletePost(postId, token);
+			message.success('Xóa bài viết thành công');
+			await fetchPosts();
+			if (detailPost?.id === postId) {
+				setDetailOpen(false);
+				setDetailPost(null);
+			}
+		} catch {
+			message.error('Xóa bài viết thất bại');
+		}
+	};
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={posts}
-        loading={loading}
-        pagination={{ pageSize: 10 }}
-        scroll={{ x: 800 }}
-      />
+	const handleToggleLockPost = async (post: Post) => {
+		const token = getToken();
+		try {
+			if (post.is_locked) {
+				await unlockPost(post.id, token);
+				message.success('Mở khóa bài viết thành công');
+			} else {
+				await lockPost(post.id, token);
+				message.success('Khóa bài viết thành công');
+			}
+			await fetchPosts();
+			if (detailPost?.id === post.id) {
+				setDetailPost((prev) => (prev ? { ...prev, is_locked: !prev.is_locked } : prev));
+			}
+		} catch {
+			message.error('Không thể cập nhật trạng thái khóa');
+		}
+	};
 
-      <Modal
-        title={editingPost ? 'Chỉnh sửa tin tức' : 'Thêm tin tức'}
-        open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        onOk={() => form.submit()}
-        okText="Lưu"
-        cancelText="Huỷ"
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item name="title" label="Tiêu đề" rules={[{ required: true, message: 'Nhập tiêu đề' }]}>
-            <Input placeholder="Nhập tiêu đề bài viết" />
-          </Form.Item>
-          <Form.Item name="content" label="Nội dung" rules={[{ required: true, message: 'Nhập nội dung' }]}>
-            <TextArea rows={4} placeholder="Nhập nội dung..." />
-          </Form.Item>
-          <Form.Item name="url_anh" label="URL ảnh">
-            <Input placeholder="https://..." />
-          </Form.Item>
-          {!editingPost && (
-            <Form.Item name="editor_realname" label="Tác giả">
-              <Input placeholder="Tên tác giả" />
-            </Form.Item>
-          )}
-        </Form>
-      </Modal>
-    </div>
-  );
+	const handleViewDetail = async (postId: number) => {
+		const token = getToken();
+		setDetailOpen(true);
+		setDetailLoading(true);
+		try {
+			const res = await getPostById(postId, token);
+			const post = normalizePost(res);
+			if (!post) {
+				message.error('Không lấy được chi tiết bài viết');
+				return;
+			}
+			setDetailPost(post);
+		} catch {
+			message.error('Không thể tải chi tiết bài viết');
+		} finally {
+			setDetailLoading(false);
+		}
+	};
+
+	return (
+		<div className='news-manager-page' style={{ padding: 24 }}>
+			<PostToolbar
+				editorFilter={editorInput}
+				onEditorFilterChange={setEditorInput}
+				onApplyEditorFilter={handleApplyEditorFilter}
+				onResetFilter={handleResetFilter}
+				onRefresh={fetchPosts}
+				onCreate={openCreateModal}
+			/>
+
+			<Card>
+				<PostTable
+					loading={loading}
+					dataSource={filteredPosts}
+					onViewDetail={handleViewDetail}
+					onEdit={openEditModal}
+					onDelete={handleDeletePost}
+					onToggleLock={handleToggleLockPost}
+				/>
+			</Card>
+
+			<PostFormModal
+				open={modalOpen}
+				loading={submitLoading}
+				editingPost={editingPost}
+				onCancel={() => {
+					setModalOpen(false);
+					setEditingPost(null);
+				}}
+				onSubmit={handleSubmit}
+			/>
+
+			<PostDetailDrawer
+				open={detailOpen}
+				loading={detailLoading}
+				post={detailPost}
+				onClose={() => {
+					setDetailOpen(false);
+					setDetailPost(null);
+				}}
+				onEdit={(post) => {
+					setDetailOpen(false);
+					openEditModal(post);
+				}}
+			/>
+		</div>
+	);
 };
 
 export default QuanLyTinTuc;
