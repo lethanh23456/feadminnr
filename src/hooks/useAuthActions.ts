@@ -15,16 +15,11 @@ export const useAuthActions = () => {
 			// OneSignal.setSubscription(false);
 		}
 
-		auth
-			.signoutRedirect({
-				post_logout_redirect_uri: window.location.origin + '/user/login',
-				id_token_hint: auth.user?.id_token,
-			})
-			.then(() => {
-				sessionStorage.clear();
-				localStorage.clear();
-				setInitialState({ ...initialState, currentUser: undefined });
-			});
+		sessionStorage.clear();
+		localStorage.clear();
+		auth.removeUser();
+		setInitialState({ ...initialState, currentUser: undefined, authorizedPermissions: [], permissionLoading: false });
+		window.location.replace('/user/login');
 	};
 
 	const handleLogin = () => {
