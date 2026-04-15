@@ -1,10 +1,454 @@
 
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Button,
+  Card,
+  Col,
+  Input,
+  InputNumber,
+  Modal,
+  Radio,
+  Row,
+  Space,
+  Tabs,
+  Typography,
+  message,
+} from 'antd';
+import { useSearchParams } from '@umijs/max';
+import {
+  buyAccountSellV2,
+  confirmSellByEmailLink,
+  createAccountSellV2,
+  deleteAccountSellV2,
+  getAccountSellByActor,
+  getAccountSellByIdV2,
+  getAllAccountBuyerV2,
+  getAllAccountSellV2,
+  markAccountSellV2,
+  updateAccountSellV2,
+} from '@/services/Partner/api';
+import AccountDetailDrawer from './components/AccountDetailDrawer';
+import AccountSellForm from './components/AccountSellForm';
+import AccountStatsCards from './components/AccountStatsCards';
+import AccountTable from './components/AccountTable';
+import ConfirmSellSection from './components/ConfirmSellSection';
+import type { AccountFormValue, AccountItem, AccountStats } from './types';
+
+const parseData = <T,>(response: any): T | undefined => {
+  return (response?.data?.data ?? response?.data) as T | undefined;
+};
+
+const getAuthToken = () => localStorage.getItem('token') || localStorage.getItem('access_token') || '';
+
+const buildStats = (allAccounts: AccountItem[], boughtAccounts: AccountItem[]): AccountStats => {
+  const selling = allAccounts.filter((item) => item.status !== 'sold').length;
+  const sold = allAccounts.filter((item) => item.status === 'sold').length;
+  const totalValue = boughtAccounts.reduce((sum, item) => sum + Number(item.price || 0), 0);
+
+  return {
+    total: allAccounts.length,
+    selling,
+    sold,
+    bought: boughtAccounts.length,
+    totalValue,
+  };
+};
 
 const QuanLyTaiKhoan = () => {
+  const token = getAuthToken();
+  const [searchParams] = useSearchParams();
 
+  const [allAccounts, setAllAccounts] = useState<AccountItem[]>([]);
+  const [myAccounts, setMyAccounts] = useState<AccountItem[]>([]);
+  const [myBoughtAccounts, setMyBoughtAccounts] = useState<AccountItem[]>([]);
+  const [activeTab, setActiveTab] = useState('market');
+
+  const [loadingAll, setLoadingAll] = useState(false);
+  const [loadingMine, setLoadingMine] = useState(false);
+  const [loadingBought, setLoadingBought] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<AccountItem | undefined>();
+
+  const [editingAccount, setEditingAccount] = useState<AccountItem | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const [ownerType, setOwnerType] = useState<'partner' | 'admin'>('partner');
+  const [ownerId, setOwnerId] = useState<number | undefined>();
+  const [ownerStatus, setOwnerStatus] = useState<string | undefined>();
+  const [searchId, setSearchId] = useState<number | undefined>();
+
+  const stats = useMemo(() => buildStats(allAccounts, myBoughtAccounts), [allAccounts, myBoughtAccounts]);
+
+  const openDetail = async (record: AccountItem) => {
+    try {
+      const response = await getAccountSellByIdV2(record.id, token);
+      const detail = parseData<AccountItem>(response);
+      setSelectedAccount(detail && !Array.isArray(detail) ? detail : record);
+      setDetailOpen(true);
+    } catch {
+      setSelectedAccount(record);
+      setDetailOpen(true);
+      message.warning('Không lấy được chi tiết mới nhất, đang hiển thị dữ liệu hiện có.');
+    }
+  };
+
+  const loadAllAccounts = async () => {
+    setLoadingAll(true);
+    try {
+      const response = await getAllAccountSellV2(token);
+      const data = parseData<AccountItem[]>(response) || [];
+      setAllAccounts(Array.isArray(data) ? data : []);
+    } catch {
+      message.error('Không thể tải kho account của hệ thống');
+    } finally {
+      setLoadingAll(false);
+    }
+  };
+
+  const loadMyAccounts = async () => {
+    setLoadingMine(true);
+    try {
+      const params = {
+        partnerId: ownerType === 'partner' ? ownerId : undefined,
+        adminId: ownerType === 'admin' ? ownerId : undefined,
+        status: ownerStatus,
+      };
+
+      const response = await getAccountSellByActor(params, token);
+      const data = parseData<AccountItem[]>(response) || [];
+      setMyAccounts(Array.isArray(data) ? data : []);
+    } catch {
+      message.error('Không thể tải danh sách account theo partner/admin');
+    } finally {
+      setLoadingMine(false);
+    }
+  };
+
+  const loadBoughtAccounts = async () => {
+    setLoadingBought(true);
+    try {
+      const params = {
+        partnerId: ownerType === 'partner' ? ownerId : undefined,
+        adminId: ownerType === 'admin' ? ownerId : undefined,
+      };
+
+      const response = await getAllAccountBuyerV2(params, token);
+      const data = parseData<AccountItem[]>(response) || [];
+      setMyBoughtAccounts(Array.isArray(data) ? data : []);
+    } catch {
+      message.error('Không thể tải danh sách account đã mua');
+    } finally {
+      setLoadingBought(false);
+    }
+  };
+
+  const refreshAll = async () => {
+    await Promise.all([loadAllAccounts(), loadMyAccounts(), loadBoughtAccounts()]);
+  };
+
+  const handleCreate = async (values: AccountFormValue) => {
+    setSubmitting(true);
+    try {
+      await createAccountSellV2(values, token);
+      message.success('Đăng account cần bán thành công. Vui lòng xác nhận qua email link.');
+      await refreshAll();
+    } catch {
+      message.error('Đăng bán account thất bại');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmByEmail = async (confirmToken: string) => {
+    setSubmitting(true);
+    try {
+      await confirmSellByEmailLink(confirmToken, token);
+      message.success('Xác nhận đăng bán thành công');
+      await refreshAll();
+    } catch {
+      message.error('Xác nhận đăng bán thất bại');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdate = async (values: AccountFormValue) => {
+    if (!editingAccount) return;
+
+    setSubmitting(true);
+    try {
+      await updateAccountSellV2(
+        {
+          id: editingAccount.id,
+          url: values.url,
+          description: values.description,
+          price: values.price,
+        },
+        token,
+      );
+      message.success('Cập nhật account thành công');
+      setEditOpen(false);
+      setEditingAccount(null);
+      await refreshAll();
+    } catch {
+      message.error('Cập nhật account thất bại');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (record: AccountItem) => {
+    setSubmitting(true);
+    try {
+      await deleteAccountSellV2(record.id, token);
+      message.success('Xóa account thành công');
+      await refreshAll();
+    } catch {
+      message.error('Xóa account thất bại');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleMarkSold = async (record: AccountItem) => {
+    setSubmitting(true);
+    try {
+      await markAccountSellV2(record.id, 'sold', token);
+      message.success('Đã đánh dấu account là đã bán');
+      await refreshAll();
+    } catch {
+      message.error('Đánh dấu đã bán thất bại');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleBuy = async (record: AccountItem) => {
+    setSubmitting(true);
+    try {
+      await buyAccountSellV2(record.id, token);
+      message.success('Mua account thành công');
+      await refreshAll();
+      setActiveTab('purchased');
+    } catch {
+      message.error('Mua account thất bại');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleFindById = async () => {
+    if (!searchId) {
+      message.warning('Vui lòng nhập ID account cần xem');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const response = await getAccountSellByIdV2(searchId, token);
+      const detail = parseData<AccountItem>(response);
+      if (!detail || Array.isArray(detail)) {
+        message.warning('Không tìm thấy account với ID đã nhập');
+        return;
+      }
+      setSelectedAccount(detail);
+      setDetailOpen(true);
+    } catch {
+      message.error('Không thể xem chi tiết account theo ID');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshAll();
+  }, []);
+
+  useEffect(() => {
+    const queryToken = searchParams.get('token');
+    if (!queryToken) return;
+    handleConfirmByEmail(queryToken);
+  }, [searchParams]);
 
   return (
-    <div>QuanLyTaiKhoan</div>
+    <div style={{ padding: 24 }}>
+      <Row justify='space-between' align='middle' gutter={[16, 16]} style={{ marginBottom: 12 }}>
+        <Col>
+          <Typography.Title level={3} style={{ margin: 0 }}>
+            Quản lý tài khoản mua bán
+          </Typography.Title>
+          <Typography.Text type='secondary'>
+            Quản lý account cần bán, xác nhận email, mua account và theo dõi lịch sử bán/mua.
+          </Typography.Text>
+        </Col>
+        <Col>
+          <Button onClick={refreshAll} loading={loadingAll || loadingMine || loadingBought}>
+            Làm mới dữ liệu
+          </Button>
+        </Col>
+      </Row>
+
+      <AccountStatsCards stats={stats} />
+
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'market',
+            label: 'Sàn account',
+            children: (
+              <AccountTable
+                data={allAccounts}
+                loading={loadingAll || submitting}
+                allowBuy
+                allowMarkSold
+                onViewDetail={openDetail}
+                onBuy={handleBuy}
+                onMarkSold={handleMarkSold}
+              />
+            ),
+          },
+          {
+            key: 'sell',
+            label: 'Đăng bán account',
+            children: (
+              <>
+                <ConfirmSellSection loading={submitting} onConfirm={handleConfirmByEmail} />
+                <AccountSellForm onSubmit={handleCreate} loading={submitting} mode='create' />
+              </>
+            ),
+          },
+          {
+            key: 'inventory',
+            label: 'Kho bán theo partner/admin',
+            children: (
+              <>
+                <Card style={{ marginBottom: 12 }}>
+                  <Space wrap size={12}>
+                    <Radio.Group value={ownerType} onChange={(e) => setOwnerType(e.target.value)}>
+                      <Radio.Button value='partner'>Partner</Radio.Button>
+                      <Radio.Button value='admin'>Admin</Radio.Button>
+                    </Radio.Group>
+
+                    <InputNumber
+                      min={1}
+                      value={ownerId}
+                      onChange={(value) => setOwnerId((value as number) || undefined)}
+                      placeholder='Nhập ID partner/admin'
+                    />
+
+                    <Input
+                      style={{ width: 220 }}
+                      value={ownerStatus}
+                      onChange={(e) => setOwnerStatus(e.target.value || undefined)}
+                      placeholder='Lọc trạng thái (selling/sold)'
+                      allowClear
+                    />
+
+                    <Button onClick={loadMyAccounts} loading={loadingMine} type='primary' ghost>
+                      Lọc kho bán
+                    </Button>
+                    <Button onClick={loadBoughtAccounts} loading={loadingBought}>
+                      Lọc kho mua cùng điều kiện
+                    </Button>
+                  </Space>
+                </Card>
+
+                <AccountTable
+                  data={myAccounts}
+                  loading={loadingMine || submitting}
+                  allowEdit
+                  allowDelete
+                  allowMarkSold
+                  onViewDetail={openDetail}
+                  onEdit={(record) => {
+                    setEditingAccount(record);
+                    setEditOpen(true);
+                  }}
+                  onDelete={handleDelete}
+                  onMarkSold={handleMarkSold}
+                />
+              </>
+            ),
+          },
+          {
+            key: 'purchased',
+            label: 'Kho mua của tôi',
+            children: (
+              <AccountTable
+                data={myBoughtAccounts}
+                loading={loadingBought || submitting}
+                onViewDetail={openDetail}
+              />
+            ),
+          },
+          {
+            key: 'lookup',
+            label: 'Tra cứu theo ID',
+            children: (
+              <Card>
+                <Space wrap size={12}>
+                  <InputNumber
+                    min={1}
+                    value={searchId}
+                    onChange={(value) => setSearchId((value as number) || undefined)}
+                    placeholder='Nhập ID account'
+                  />
+                  <Button onClick={handleFindById} loading={submitting} type='primary'>
+                    Xem chi tiết account
+                  </Button>
+                </Space>
+                <Typography.Paragraph type='secondary' style={{ marginTop: 12, marginBottom: 0 }}>
+                  Tab này dành cho tra cứu nhanh một account bất kỳ theo mã ID.
+                </Typography.Paragraph>
+              </Card>
+            ),
+          },
+        ]}
+      />
+
+      <Modal
+        open={editOpen}
+        onCancel={() => {
+          setEditOpen(false);
+          setEditingAccount(null);
+        }}
+        footer={null}
+        destroyOnClose
+        width={680}
+        title='Cập nhật thông tin account cần bán'
+      >
+        <AccountSellForm
+          mode='edit'
+          loading={submitting}
+          initialValues={
+            editingAccount
+              ? {
+                  username: editingAccount.username,
+                  password: '',
+                  url: editingAccount.url,
+                  description: editingAccount.description,
+                  price: Number(editingAccount.price || 0),
+                }
+              : undefined
+          }
+          onSubmit={handleUpdate}
+          onCancel={() => {
+            setEditOpen(false);
+            setEditingAccount(null);
+          }}
+        />
+      </Modal>
+
+      <AccountDetailDrawer
+        open={detailOpen}
+        account={selectedAccount}
+        onClose={() => setDetailOpen(false)}
+      />
+    </div>
   );
 };
 
